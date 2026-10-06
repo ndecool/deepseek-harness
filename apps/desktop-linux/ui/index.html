@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DeepSeek Harness</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #4d6bfe; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font: 14px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText;
+    }
+    main { width: min(760px, 92vw); text-align: center; }
+    h1 { font-size: 20px; font-weight: 600; margin: 16px 0 4px; }
+    p { margin: 4px 0; opacity: .75; }
+    .spinner {
+      width: 28px; height: 28px; margin: 0 auto; border-radius: 50%;
+      border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .failed .spinner { display: none; }
+    pre {
+      display: none; text-align: left; max-height: 45vh; overflow: auto; margin: 16px 0;
+      padding: 12px; border-radius: 8px; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap;
+      background: color-mix(in srgb, CanvasText 6%, Canvas);
+    }
+    .failed pre, .failed .actions { display: block; }
+    .actions { display: none; }
+    button {
+      font: inherit; padding: 6px 14px; margin: 0 4px; border-radius: 6px; cursor: pointer;
+      border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: CanvasText;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  </style>
+</head>
+<body>
+  <main id="root">
+    <div class="spinner"></div>
+    <h1 id="title">Starting DeepSeek Harness…</h1>
+    <p id="detail">Launching the dsh runtime.</p>
+    <pre id="log"></pre>
+    <div class="actions">
+      <button class="primary" id="retry">Restart runtime</button>
+      <button id="open-log">Open log</button>
+    </div>
+  </main>
+  <script>
+    const { invoke } = window.__TAURI__.core
+    const root = document.getElementById('root')
+    const title = document.getElementById('title')
+    const detail = document.getElementById('detail')
+    const log = document.getElementById('log')
+
+    function render(status) {
+      const failed = status.phase === 'failed'
+      root.classList.toggle('failed', failed)
+      title.textContent = failed ? 'The dsh runtime stopped' : 'Starting DeepSeek Harness…'
+      detail.textContent = failed
+        ? status.message
+        : `Launching the dsh runtime${status.source ? ` (${status.source})` : ''}.`
+      if (failed) {
+        const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 4
+        log.textContent = `${status.log.join('\n')}\n\nFull log: ${status.log_path}`
+        if (stick) log.scrollTop = log.scrollHeight
+      }
+    }
+
+    async function poll() {
+      try { render(await invoke('runtime_status')) } catch (error) { detail.textContent = String(error) }
+      setTimeout(poll, 400)
+    }
+
+    document.getElementById('retry').addEventListener('click', () => {
+      root.classList.remove('failed')
+      void invoke('restart_runtime')
+    })
+    document.getElementById('open-log').addEventListener('click', () => { void invoke('open_log') })
+    void poll()
+  </script>
+</body>
+</html>

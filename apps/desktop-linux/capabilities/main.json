@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local status page only; the remote dsh Web UI gets no IPC access.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "allow-runtime-status",
+    "allow-restart-runtime",
+    "allow-open-log"
+  ]
+}

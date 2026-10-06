@@ -1,0 +1,80 @@
+name: desktop-linux
+
+# Fork-only: merge upstream daily, then build the Rust/Tauri Linux desktop app.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['apps/desktop-linux/**', '.github/workflows/desktop-linux.yml']
+    tags: ['desktop-linux-v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-linux-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync-upstream:
+    if: github.repository != 'deepseek-ai/deepseek-harness' && github.event_name != 'push'
+    runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.merge.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+          # GITHUB_TOKEN cannot push upstream's workflow-file changes; SYNC_TOKEN is a PAT with `workflow` scope.
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+      - id: merge
+        name: Merge upstream/master
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/deepseek-ai/deepseek-harness.git
+          git fetch upstream master
+          git merge --no-edit upstream/master
+          git push origin master
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: sync-upstream
+    if: always() && (needs.sync-upstream.result == 'success' || needs.sync-upstream.result == 'skipped')
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/desktop-linux
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync-upstream.outputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev build-essential
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop-linux
+      - run: cargo install tauri-cli --version '^2' --locked
+      - run: cargo test --locked
+      - run: ./scripts/bundle-runtime.sh
+      - run: cargo tauri build --config tauri.bundle.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-harness-linux-x64
+          path: |
+            apps/desktop-linux/target/release/bundle/appimage/*.AppImage
+            apps/desktop-linux/target/release/bundle/deb/*.deb
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/desktop-linux-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb
